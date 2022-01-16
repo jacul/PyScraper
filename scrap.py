@@ -9,7 +9,9 @@ import zlib
 import json
 import logging
 
-API2_BASE_URL = "https://www.screenscraper.fr/api2/"
+SS_API2_BASE_URL = "https://www.screenscraper.fr/api2/"
+INFRA_INFO_PATH = "ssinfraInfos.php"
+USER_INFO_PATH = "ssuserInfos.php"
 ROM_INFO_PATH = "jeuInfos.php"
 DEVID_PARAM = "devid"
 DEVPASSWORD_PARAM = "devpassword"
@@ -31,7 +33,7 @@ DEFAULT = "screenscraper.fr"
 SS_NAME = "nickname"
 SS_PASS = "password"
 
-SUPPORTED_FILE_TYPES = {".nes"}
+SUPPORTED_FILE_TYPE_ID = {".nes": "3"}
 
 devid: str
 devpassword: str
@@ -128,8 +130,59 @@ def main() -> int:
         save_sample_ini()
         return -1
 
+    registered_user_only = get_registered_user_only()
+
+    if registered_user_only:
+        if not (ssid and sspassword):
+            logger.error(f"API closed for non-registered users, \
+                    set forum nicknamd/password in {INI_FILE} file")
+            return -1
+
+    global maximum_threads
+    maximum_threads = get_maximum_threads()
+
     return scrap(input, output_dir, args.recursive, args.rename, args.checksum,
                  args.update_cache)
+
+
+def get_registered_user_only() -> bool:
+    url = SS_API2_BASE_URL + INFRA_INFO_PATH + "?" + common_query(False)
+
+    try:
+        with urllib.request.urlopen(url) as response:
+            response_data = response.read()
+            try:
+                json_object = json.loads(response_data)
+                return json_object.get("response",
+                                       {}).get("serveurs",
+                                               {}).get("closefornomember")
+            except ValueError:
+                logger.debug(response_data.decode('utf-8'))
+    except Exception as e:
+        logger.debug(e)
+    return False
+
+
+def get_maximum_threads() -> int:
+    if not (ssid and sspassword):
+        return 1
+
+    url = SS_API2_BASE_URL + USER_INFO_PATH + "?" + common_query(True)
+
+    try:
+        with urllib.request.urlopen(url) as response:
+            response_data = response.read()
+            try:
+                json_object = json.loads(response_data)
+                max_threads = json_object.get("response",
+                                              {}).get("ssuser",
+                                                      {}).get("maxthreads")
+                return int(max_threads or 1)
+            except ValueError:
+                logger.debug(response_data.decode('utf-8'))
+    except Exception as e:
+        logger.debug(e)
+    return 1
 
 
 def scrap(input: Path, output_dir: Path, recursive: bool, rename: bool,
@@ -149,12 +202,12 @@ def scrap(input: Path, output_dir: Path, recursive: bool, rename: bool,
 
 def scrap_single_file(input: Path, output_dir: Path, send_checksum: bool,
                       rename: bool) -> int:
-    if input.suffix.lower() not in SUPPORTED_FILE_TYPES:
+    if input.suffix.lower() not in SUPPORTED_FILE_TYPE_ID:
         logger.debug(f"Unsupported rom type for scrapping: {input}")
         return -1
     rom_query_param, checksum = rominfo_query(input, send_checksum)
     params = common_query(True) + '&' + rom_query_param
-    url = API2_BASE_URL + ROM_INFO_PATH + "?" + params
+    url = SS_API2_BASE_URL + ROM_INFO_PATH + "?" + params
     logger.debug(url)
     try:
         with urllib.request.urlopen(url) as response:
@@ -205,14 +258,14 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
     return
 
 
-def common_query(registered_users_only: bool) -> str:
+def common_query(maybe_include_user_pass: bool) -> str:
     params = {
         DEVID_PARAM: devid,
         DEVPASSWORD_PARAM: devpassword,
         SOFTNAME_PARAM: SOFTNAME,
         OUTPUT_PARAM: DEFAULT_OUTPUT,
     }
-    if registered_users_only:
+    if maybe_include_user_pass and ssid and sspassword:
         params[SSID_PARAM] = ssid
         params[SSPASSWORD_PARAM] = sspassword
     return urllib.parse.urlencode(params)
@@ -220,8 +273,9 @@ def common_query(registered_users_only: bool) -> str:
 
 def rominfo_query(rom_file: Path,
                   include_checksum: bool) -> tuple[str, ChecksumInfo]:
+    system_id = SUPPORTED_FILE_TYPE_ID[rom_file.suffix.lower()]
     params = {
-        SYSTEMEID_PARAM: "3",
+        SYSTEMEID_PARAM: system_id,
         ROMTYPE_PARAM: "rom",
         ROMNAME_PARAM: rom_file.name
     }
