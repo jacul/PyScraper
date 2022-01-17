@@ -1,7 +1,11 @@
 import argparse
+from concurrent import futures
+from concurrent.futures import ThreadPoolExecutor
 import configparser
+import os
 import sys
 from pathlib import Path
+from typing import List
 import urllib.request
 import urllib.parse
 import hashlib
@@ -57,6 +61,13 @@ class ChecksumInfo:
         self.crc = format(crc & 0xFFFFFFFF, '08x').upper()
         self.md5 = md5.hexdigest().upper()
         self.sha1 = sha1.hexdigest().upper()
+
+
+class DownloadFile:
+
+    def __init__(self, url, dest):
+        self.url = url
+        self.dest = dest
 
 
 def main() -> int:
@@ -179,7 +190,7 @@ def get_maximum_threads() -> int:
                                                       {}).get("maxthreads")
                 return int(max_threads or 1)
             except ValueError:
-                logger.debug(response_data.decode('utf-8'))
+                logger.debug(response_data.decode("utf-8"))
     except Exception as e:
         logger.debug(e)
     return 1
@@ -187,24 +198,37 @@ def get_maximum_threads() -> int:
 
 def scrap(input: Path, output_dir: Path, recursive: bool, rename: bool,
           send_checksum: bool, update_cache: bool) -> int:
+    rom_files = []
     if input.is_dir():
-        glob = input.rglob("*.*") if recursive else input.glob("*.*")
-        count = 0
-        for f in glob:
-            scrap_single_file(f, output_dir, send_checksum, rename)
-            count += 1
-            # if count > 20:
-            #     break
+        for f in input.rglob("*.*") if recursive else input.glob("*.*"):
+            rom_files.append(f)
     else:
-        return scrap_single_file(input, output_dir, send_checksum, rename)
+        rom_files.append(input)
+
+    futures_list = []
+    with ThreadPoolExecutor(max_workers=maximum_threads) as executor:
+        for f in rom_files:
+            future = executor.submit(scrap_single_file, f, output_dir,
+                                     send_checksum, rename)
+            futures_list.append(future)
+            if len(futures_list) >= maximum_threads or f == rom_files[-1]:
+                done, not_done = futures.wait(
+                    futures_list, return_when=futures.ALL_COMPLETED)
+                files_to_download = [
+                    download for future in done
+                    for download in future.result()
+                ]
+                futures_list = list(not_done)
+                for file in files_to_download:
+                    futures_list.append(executor.submit(download_file, file))
     return 0
 
 
 def scrap_single_file(input: Path, output_dir: Path, send_checksum: bool,
-                      rename: bool) -> int:
+                      rename: bool) -> List[DownloadFile]:
     if input.suffix.lower() not in SUPPORTED_FILE_TYPE_ID:
         logger.debug(f"Unsupported rom type for scrapping: {input}")
-        return -1
+        return []
     rom_query_param, checksum = rominfo_query(input, send_checksum)
     params = common_query(True) + '&' + rom_query_param
     url = SS_API2_BASE_URL + ROM_INFO_PATH + "?" + params
@@ -214,25 +238,25 @@ def scrap_single_file(input: Path, output_dir: Path, send_checksum: bool,
             response_data = response.read()
             try:
                 json_object = json.loads(response_data)
-                process_response(input, output_dir, json_object, checksum,
-                                 rename)
+                return process_response(input, output_dir, json_object,
+                                        checksum, rename)
             except ValueError:
                 logger.debug(response_data.decode('utf-8'))
-                return -1
     except Exception as e:
         logger.debug(e)
-        return -1
-    return 0
+    return []
 
 
 def process_response(input: Path, output_dir: Path, ss_data: dict,
-                     checksum: ChecksumInfo, rename: bool):
+                     checksum: ChecksumInfo,
+                     rename: bool) -> List[DownloadFile]:
     game_data = ss_data.get('response', {}).get('jeu')
     if not game_data:
         logger.warning(f"{input.name}: has no game data")
-        return
+        return []
 
-    rom_data = game_data.get('rom')
+    rom_data = game_data.get('rom', {})
+
     if checksum:
         if checksum.crc == rom_data.get(
                 'romcrc') and checksum.md5 == rom_data.get(
@@ -240,8 +264,9 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
             logger.debug(f"{input.name}: checksum matches")
         else:
             logger.warning(f"{input.name}: has no match by checksum")
-            return
-    remote_rom_name = rom_data.get('romfilename')
+
+    remote_rom_name = rom_data.get('romfilename', '')
+    save_rom_name = input.name
     found_rom_with_same_suffix = remote_rom_name.lower().endswith(
         input.suffix.lower())
     if not found_rom_with_same_suffix:
@@ -253,9 +278,54 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
             logger.info(f"{input.name}: renamed {remote_rom_name}")
             if not dry_run:
                 input.rename(remote_rom_name)
+                save_rom_name = remote_rom_name
 
-    #TODO: Download title.
-    return
+    files = []
+    rom_regions = rom_data.get('romregions')
+    media_data = game_data.get('medias', {})
+
+    found_file_matching_region = False
+    available_files = []
+    for media in media_data:
+        if media.get("type") == "ss":
+            available_files.append(media)
+            if media.get("region") == rom_regions:
+                found_file_matching_region = True
+                files.append(
+                    get_download_file_info(save_rom_name, output_dir, media))
+
+    if not found_file_matching_region and len(available_files) > 0:
+        files.append(
+            get_download_file_info(save_rom_name, output_dir,
+                                   available_files[0]))
+
+    return files
+
+
+def get_download_file_info(rom_name: str, output_dir: str, media: dict):
+    url = media.get("url")
+    dest = os.path.join(output_dir,
+                        os.path.splitext(rom_name)[0] + "." + media["format"])
+    return DownloadFile(url, dest)
+
+
+def download_file(file: DownloadFile) -> List:
+    logger.debug("fetching: " + file.url)
+    logger.info("Download to: " + file.dest)
+
+    if dry_run:
+        return []
+    try:
+        req = urllib.request.urlopen(file.url)
+        with open(file.dest, "wb") as handle:
+            while True:
+                chunk = req.read(1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+    except Exception as e:
+        logger.debug(e)
+    return []
 
 
 def common_query(maybe_include_user_pass: bool) -> str:
