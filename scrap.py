@@ -287,7 +287,7 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
     found_file_matching_region = False
     available_files = []
     for media in media_data:
-        if media.get("type") == "ss":
+        if media.get("type") == "sstitle":
             available_files.append(media)
             if media.get("region") == rom_regions:
                 found_file_matching_region = True
