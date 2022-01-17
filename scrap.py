@@ -39,10 +39,10 @@ SS_PASS = "password"
 
 SUPPORTED_FILE_TYPE_ID = {".nes": "3"}
 
-devid: str
-devpassword: str
-ssid: str
-sspassword: str
+devid: str = None
+devpassword: str = None
+ssid: str = None
+sspassword: str = None
 dry_run: bool
 
 
@@ -123,7 +123,7 @@ def main() -> int:
 
     input: Path = args.input
     if not input.exists():
-        logger.debug("Input does not exist")
+        logger.warning("Input does not exist")
         return -1
 
     output_dir: Path
@@ -131,13 +131,13 @@ def main() -> int:
         if args.output.exists() and args.output.is_dir():
             output_dir = args.output
         else:
-            logger.debug("Invalid output directory")
+            logger.warning("Invalid output directory")
     else:
         output_dir = input if input.is_dir() else input.parent
 
     read_credentials()
     if not devid or not devpassword:
-        logger.debug(f"Set dev credentials in sample {INI_FILE} file!")
+        logger.info(f"Set dev credentials in sample {INI_FILE} file!")
         save_sample_ini()
         return -1
 
