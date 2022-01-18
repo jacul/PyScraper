@@ -74,7 +74,7 @@ def main() -> int:
     init_logger()
 
     parser = argparse.ArgumentParser(
-        description="Scrap rom information from screenscraper.fr")
+        description="Scrape rom information from screenscraper.fr")
     parser.add_argument("input",
                         type=Path,
                         help="Rom file or directory of the roms")
@@ -86,7 +86,7 @@ def main() -> int:
     parser.add_argument("-r",
                         "--recursive",
                         action="store_true",
-                        help="Scrap recursively in a directory")
+                        help="Scrape recursively in a directory")
     parser.add_argument("-c",
                         "--checksum",
                         action="store_true",
@@ -104,7 +104,7 @@ def main() -> int:
                         nargs='+',
                         choices=["title", "screenshot"],
                         default="title",
-                        help="Media type to scrap. Default to title.")
+                        help="Media type to scrape. Default to title.")
     parser.add_argument(
         "-d",
         "--dry-run",
@@ -152,8 +152,8 @@ def main() -> int:
     global maximum_threads
     maximum_threads = get_maximum_threads()
 
-    return scrap(input, output_dir, args.recursive, args.rename, args.checksum,
-                 args.update_cache)
+    return scrape(input, output_dir, args.recursive, args.rename,
+                  args.checksum, args.update_cache)
 
 
 def get_registered_user_only() -> bool:
@@ -196,8 +196,8 @@ def get_maximum_threads() -> int:
     return 1
 
 
-def scrap(input: Path, output_dir: Path, recursive: bool, rename: bool,
-          send_checksum: bool, update_cache: bool) -> int:
+def scrape(input: Path, output_dir: Path, recursive: bool, rename: bool,
+           send_checksum: bool, update_cache: bool) -> int:
     rom_files = []
     if input.is_dir():
         for f in input.rglob("*.*") if recursive else input.glob("*.*"):
@@ -208,7 +208,7 @@ def scrap(input: Path, output_dir: Path, recursive: bool, rename: bool,
     futures_list = []
     with ThreadPoolExecutor(max_workers=maximum_threads) as executor:
         for f in rom_files:
-            future = executor.submit(scrap_single_file, f, output_dir,
+            future = executor.submit(scrape_single_file, f, output_dir,
                                      send_checksum, rename)
             futures_list.append(future)
             if len(futures_list) >= maximum_threads or f == rom_files[-1]:
@@ -224,10 +224,10 @@ def scrap(input: Path, output_dir: Path, recursive: bool, rename: bool,
     return 0
 
 
-def scrap_single_file(input: Path, output_dir: Path, send_checksum: bool,
-                      rename: bool) -> List[DownloadFile]:
+def scrape_single_file(input: Path, output_dir: Path, send_checksum: bool,
+                       rename: bool) -> List[DownloadFile]:
     if input.suffix.lower() not in SUPPORTED_FILE_TYPE_ID:
-        logger.debug(f"Unsupported rom type for scrapping: {input}")
+        logger.debug(f"Unsupported rom type for scraping: {input}")
         return []
     rom_query_param, checksum = rominfo_query(input, send_checksum)
     params = common_query(True) + '&' + rom_query_param
