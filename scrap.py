@@ -266,7 +266,6 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
             logger.warning(f"{input.name}: has no match by checksum")
 
     remote_rom_name = rom_data.get('romfilename', '')
-    save_rom_name = input.name
     found_rom_with_same_suffix = remote_rom_name.lower().endswith(
         input.suffix.lower())
     if not found_rom_with_same_suffix:
@@ -277,8 +276,7 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
         else:
             logger.info(f"{input.name}: renamed {remote_rom_name}")
             if not dry_run:
-                input.rename(remote_rom_name)
-                save_rom_name = remote_rom_name
+                input = input.rename(input.parent.joinpath(remote_rom_name))
 
     files = []
     rom_regions = rom_data.get('romregions')
@@ -291,27 +289,24 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
             available_files.append(media)
             if media.get("region") == rom_regions:
                 found_file_matching_region = True
-                files.append(
-                    get_download_file_info(save_rom_name, output_dir, media))
+                files.append(get_download_file_info(input, output_dir, media))
 
     if not found_file_matching_region and len(available_files) > 0:
         files.append(
-            get_download_file_info(save_rom_name, output_dir,
-                                   available_files[0]))
+            get_download_file_info(input, output_dir, available_files[0]))
 
     return files
 
 
-def get_download_file_info(rom_name: str, output_dir: str, media: dict):
+def get_download_file_info(input: Path, output_dir: str, media: dict):
     url = media.get("url")
-    dest = os.path.join(output_dir,
-                        os.path.splitext(rom_name)[0] + "." + media["format"])
+    dest = Path(output_dir).joinpath(input.stem + "." + media["format"])
     return DownloadFile(url, dest)
 
 
 def download_file(file: DownloadFile) -> List:
-    logger.debug("fetching: " + file.url)
-    logger.info("Download to: " + file.dest)
+    logger.debug(f"fetching: {file.url}")
+    logger.info(f"Download to: {file.dest}")
 
     if dry_run:
         return []

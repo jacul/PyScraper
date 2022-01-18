@@ -2,3 +2,4 @@
 *.log
 *.nes
 *.png
+.DS_STORE
