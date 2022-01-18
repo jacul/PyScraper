@@ -20,7 +20,7 @@ ROM_INFO_PATH = "jeuInfos.php"
 DEVID_PARAM = "devid"
 DEVPASSWORD_PARAM = "devpassword"
 SOFTNAME_PARAM = "softname"
-SOFTNAME = "PyScrapper"
+SOFTNAME = "PyScraper"
 OUTPUT_PARAM = "output"
 DEFAULT_OUTPUT = "json"
 SSID_PARAM = "ssid"
@@ -32,7 +32,7 @@ SYSTEMEID_PARAM = "systemeid"
 ROMTYPE_PARAM = "romtype"
 ROMNAME_PARAM = "romnom"
 
-INI_FILE = "pyscrapper.ini"
+INI_FILE = "pyscraper.ini"
 DEFAULT = "screenscraper.fr"
 SS_NAME = "nickname"
 SS_PASS = "password"
@@ -385,9 +385,9 @@ def save_sample_ini():
 
 def init_logger():
     global logger
-    logger = logging.getLogger('pyscrapper')
+    logger = logging.getLogger('pyscraper')
     logger.setLevel(logging.DEBUG)
-    fh = logging.FileHandler('pyscrapper.log')
+    fh = logging.FileHandler('pyscraper.log')
     fh.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
