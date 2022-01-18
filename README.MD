@@ -1,4 +1,4 @@
-# PyScrapper
+# PyScraper
 
 ## Prerequisite
 
@@ -9,12 +9,12 @@ Developer identity (and optionally nickname/pass) for <https://screenscraper.fr>
 ## Usage
 
 ```bash
-python3 scrap.py [options] <rom file or directory>
+python3 scraper.py [options] <rom file or directory>
 ```
 
-It'll create a `pyscrapper.ini` file for the first time. Set your developer credentials there.
+It'll create a `pyscraper.ini` file on the first time. Set your developer credentials there.
 
-Depending on whether screenscraper.fr allows API access for non-registered users, you may also need the forum nickname and password, although you're very likely to have them if you already have a developer identity.
+Depending on whether <screenscraper.fr> allows API access for non-registered users, you may also need the forum nickname and password. You're very likely to have them if you already have a developer identity.
 
 Supported options:
 
@@ -23,7 +23,8 @@ Supported options:
 -n rename the rom file to match the scraped name
 -o output folder if different than rom's folder
 -d dry-run, does not actually rename or download anything
--r scrap the roms recursively,effective only when input is a folder
+-r scrape the roms recursively,effective only when input is a folder
+-u force update the image file even they already exist
 ```
 
 The script will download a game's title screenshot and save it using the rom's name under the same directory by default. Should the rom be renamed, the image file will always be the same name.
@@ -37,8 +38,6 @@ Right now only `.nes` rom type is supported.
 There may be some options in the command prompt but not working yet.
 
 * Specify what kind of media to download(`-m`)
-
-* Force update the stored images with `-u` option
 
 * Cache the registered user only flag and maximum threads flag in the config so to skip it next time
 

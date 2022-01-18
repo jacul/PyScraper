@@ -209,7 +209,7 @@ def scrape(input: Path, output_dir: Path, recursive: bool, rename: bool,
     with ThreadPoolExecutor(max_workers=maximum_threads) as executor:
         for f in rom_files:
             future = executor.submit(scrape_single_file, f, output_dir,
-                                     send_checksum, rename)
+                                     send_checksum, rename, update_cache)
             futures_list.append(future)
             if len(futures_list) >= maximum_threads or f == rom_files[-1]:
                 done, not_done = futures.wait(
@@ -225,7 +225,7 @@ def scrape(input: Path, output_dir: Path, recursive: bool, rename: bool,
 
 
 def scrape_single_file(input: Path, output_dir: Path, send_checksum: bool,
-                       rename: bool) -> List[DownloadFile]:
+                       rename: bool, update_cache: bool) -> List[DownloadFile]:
     if input.suffix.lower() not in SUPPORTED_FILE_TYPE_ID:
         logger.debug(f"Unsupported rom type for scraping: {input}")
         return []
@@ -239,7 +239,7 @@ def scrape_single_file(input: Path, output_dir: Path, send_checksum: bool,
             try:
                 json_object = json.loads(response_data)
                 return process_response(input, output_dir, json_object,
-                                        checksum, rename)
+                                        checksum, rename, update_cache)
             except ValueError:
                 logger.debug(response_data.decode('utf-8'))
     except Exception as e:
@@ -248,8 +248,8 @@ def scrape_single_file(input: Path, output_dir: Path, send_checksum: bool,
 
 
 def process_response(input: Path, output_dir: Path, ss_data: dict,
-                     checksum: ChecksumInfo,
-                     rename: bool) -> List[DownloadFile]:
+                     checksum: ChecksumInfo, rename: bool,
+                     update_cache: bool) -> List[DownloadFile]:
     game_data = ss_data.get('response', {}).get('jeu')
     if not game_data:
         logger.warning(f"{input.name}: has no game data")
@@ -282,23 +282,30 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
     rom_regions = rom_data.get('romregions')
     media_data = game_data.get('medias', {})
 
-    found_file_matching_region = False
+    media_to_download: DownloadFile = None
     available_files = []
     for media in media_data:
         if media.get("type") == "sstitle":
             available_files.append(media)
             if media.get("region") == rom_regions:
-                found_file_matching_region = True
-                files.append(get_download_file_info(input, output_dir, media))
+                media_to_download = get_download_file_info(
+                    input, output_dir, media)
 
-    if not found_file_matching_region and len(available_files) > 0:
-        files.append(
-            get_download_file_info(input, output_dir, available_files[0]))
+    if not media_to_download and len(available_files) > 0:
+        media_to_download = get_download_file_info(input, output_dir,
+                                                   available_files[0])
+
+    if media_to_download:
+        if not media_to_download.dest.exists() or update_cache:
+            files.append(media_to_download)
+        else:
+            logger.debug(f"Skipping file {media_to_download.dest}")
 
     return files
 
 
-def get_download_file_info(input: Path, output_dir: str, media: dict):
+def get_download_file_info(input: Path, output_dir: str,
+                           media: dict) -> DownloadFile:
     url = media.get("url")
     dest = Path(output_dir).joinpath(input.stem + "." + media["format"])
     return DownloadFile(url, dest)
@@ -307,6 +314,8 @@ def get_download_file_info(input: Path, output_dir: str, media: dict):
 def download_file(file: DownloadFile) -> List:
     logger.debug(f"fetching: {file.url}")
     logger.info(f"Download to: {file.dest}")
+    if file.dest.exists():
+        logger.debug(f"File {file.dest} already exists")
 
     if dry_run:
         return []
