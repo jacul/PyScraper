@@ -29,7 +29,7 @@ Supported options:
 
 The script will download a game's title screenshot and save it using the rom's name under the same directory by default. Should the rom be renamed, the image file will always be the same name.
 
-Depending on the maximum number of threads you have, this script will utilize that and make concurrent requests while scraping.
+Depending on the maximum number of threads you have, this script will utilize that and make concurrent requests while scraping. These settings are cached in the .ini file. Should those values change(thanks for your contribution!), just remove them from the config file and they'll be fetched again.
 
 ## TODO
 
@@ -38,8 +38,6 @@ Right now only `.nes` rom type is supported.
 There may be some options in the command prompt but not working yet.
 
 * Specify what kind of media to download(`-m`)
-
-* Cache the registered user only flag and maximum threads flag in the config so to skip it next time
 
 * Support for other roms
 

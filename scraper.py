@@ -33,9 +33,11 @@ ROMTYPE_PARAM = "romtype"
 ROMNAME_PARAM = "romnom"
 
 INI_FILE = "pyscraper.ini"
-DEFAULT = "screenscraper.fr"
+DEFAULT = 'screenscraper.fr'
 SS_NAME = "nickname"
 SS_PASS = "password"
+MAX_THREADS = "maxthreads"
+REGISTERED_ONLY = "registeredonly"
 
 SUPPORTED_FILE_TYPE_ID = {".nes": "3"}
 
@@ -44,6 +46,8 @@ devpassword: str = None
 ssid: str = None
 sspassword: str = None
 dry_run: bool
+registered_user_only: bool = None
+maximum_threads: int = None
 
 
 class ChecksumInfo:
@@ -135,22 +139,8 @@ def main() -> int:
     else:
         output_dir = input if input.is_dir() else input.parent
 
-    read_credentials()
-    if not devid or not devpassword:
-        logger.info(f"Set dev credentials in sample {INI_FILE} file!")
-        save_sample_ini()
+    if init_configs() != 0:
         return -1
-
-    registered_user_only = get_registered_user_only()
-
-    if registered_user_only:
-        if not (ssid and sspassword):
-            logger.error(f"API closed for non-registered users, \
-                    set forum nicknamd/password in {INI_FILE} file")
-            return -1
-
-    global maximum_threads
-    maximum_threads = get_maximum_threads()
 
     return scrape(input, output_dir, args.recursive, args.rename,
                   args.checksum, args.update_cache)
@@ -164,9 +154,13 @@ def get_registered_user_only() -> bool:
             response_data = response.read()
             try:
                 json_object = json.loads(response_data)
-                return json_object.get("response",
-                                       {}).get("serveurs",
-                                               {}).get("closefornomember")
+                result = json_object.get("response",
+                                         {}).get("serveurs",
+                                                 {}).get("closefornomember")
+                logger.debug(
+                    f"Fetching forum closed for non-registered users: {result}"
+                )
+                return bool(result)
             except ValueError:
                 logger.debug(response_data.decode('utf-8'))
     except Exception as e:
@@ -185,10 +179,12 @@ def get_maximum_threads() -> int:
             response_data = response.read()
             try:
                 json_object = json.loads(response_data)
-                max_threads = json_object.get("response",
-                                              {}).get("ssuser",
-                                                      {}).get("maxthreads")
-                return int(max_threads or 1)
+                result = json_object.get("response",
+                                         {}).get("ssuser",
+                                                 {}).get("maxthreads")
+                max_threads = int(result or 1)
+                logger.debug(f"Fetching maximum threads to scrape: {max_threads}")
+                return max_threads
             except ValueError:
                 logger.debug(response_data.decode("utf-8"))
     except Exception as e:
@@ -362,7 +358,31 @@ def rominfo_query(rom_file: Path,
     return urllib.parse.urlencode(params), checksum
 
 
-def read_credentials():
+def init_configs() -> int:
+    load_config_file()
+    if not devid or not devpassword:
+        logger.info(f"Set dev credentials in sample {INI_FILE} file!")
+        save_sample_ini()
+        return -1
+
+    global registered_user_only
+    if registered_user_only == None:
+        registered_user_only = get_registered_user_only()
+        append_ini(REGISTERED_ONLY, registered_user_only)
+
+    if registered_user_only and not (ssid and sspassword):
+        logger.error(f"API closed for non-registered users, \
+                set forum nicknamd/password in {INI_FILE} file")
+        return -1
+
+    global maximum_threads
+    if not maximum_threads:
+        maximum_threads = get_maximum_threads()
+        append_ini(MAX_THREADS, maximum_threads)
+    return 0
+
+
+def load_config_file():
     config = configparser.ConfigParser()
     config.read(INI_FILE)
     if config.has_option(DEFAULT, DEVID_PARAM) and config.has_option(
@@ -372,7 +392,15 @@ def read_credentials():
         devpassword = config[DEFAULT][DEVPASSWORD_PARAM]
         ssid = config[DEFAULT][SS_NAME]
         sspassword = config[DEFAULT][SS_PASS]
-    return None, None
+
+    if config.has_option(DEFAULT, REGISTERED_ONLY):
+        global registered_user_only
+        registered_user_only = config.getboolean(DEFAULT, REGISTERED_ONLY)
+
+    if config.has_option(DEFAULT, MAX_THREADS):
+        global maximum_threads
+        maximum_threads = config.getint(DEFAULT, MAX_THREADS)
+    return
 
 
 def save_sample_ini():
@@ -385,6 +413,15 @@ def save_sample_ini():
     }
     with open(INI_FILE, 'w') as configfile:
         config.write(configfile)
+
+
+def append_ini(key: str, value):
+    config_update = configparser.RawConfigParser()
+    config_update.read(INI_FILE)
+    config_update.set(DEFAULT, key, value)
+
+    with open(INI_FILE, 'w') as f:
+        config_update.write(f)
 
 
 def init_logger():
