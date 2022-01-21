@@ -39,7 +39,7 @@ SS_PASS = "password"
 MAX_THREADS = "maxthreads"
 REGISTERED_ONLY = "registeredonly"
 
-SUPPORTED_FILE_TYPE_ID = {".nes": "3"}
+SUPPORTED_FILE_TYPE_ID = {".nes": "3", ".smc": "4", ".sfc": "4", ".fig": "4"}
 
 devid: str = None
 devpassword: str = None
@@ -183,7 +183,8 @@ def get_maximum_threads() -> int:
                                          {}).get("ssuser",
                                                  {}).get("maxthreads")
                 max_threads = int(result or 1)
-                logger.debug(f"Fetching maximum threads to scrape: {max_threads}")
+                logger.debug(
+                    f"Fetching maximum threads to scrape: {max_threads}")
                 return max_threads
             except ValueError:
                 logger.debug(response_data.decode("utf-8"))
