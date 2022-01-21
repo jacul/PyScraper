@@ -316,7 +316,7 @@ def download_file(file: DownloadFile) -> List:
     logger.debug(f"fetching: {file.url}")
     logger.info(f"Download to: {file.dest}")
     if file.dest.exists():
-        logger.debug(f"File {file.dest} already exists")
+        logger.debug(f"Overwrite existing file {file.dest}")
 
     if dry_run:
         return []
