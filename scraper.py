@@ -273,7 +273,11 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
         else:
             logger.info(f"{input.name}: renamed {remote_rom_name}")
             if not dry_run:
-                input = input.rename(input.parent.joinpath(remote_rom_name))
+                rename_to = input.parent.joinpath(remote_rom_name)
+                if rename_to.exists():
+                    logger.warning(f"{remote_rom_name} already exists")
+                else:
+                    input = input.rename(input.parent.joinpath(remote_rom_name))
 
     files = []
     rom_regions = rom_data.get('romregions')
