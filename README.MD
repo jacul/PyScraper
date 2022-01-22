@@ -25,20 +25,19 @@ Supported options:
 -d dry-run, does not actually rename or download anything
 -r scrape the roms recursively,effective only when input is a folder
 -u force update the image file even they already exist
+-m Specify a media type to download. Defaults to rom's title screenshot. Or use `all` to download both title and game screenshots.
 ```
 
-The script will download a game's title screenshot and save it using the rom's name under the same directory by default. Should the rom be renamed, the image file will always be the same name.
+The script will download a game's title screenshot and save it using the rom's name to a subfolder of the rom's folder by default. Should the rom be renamed, the image file will always be the same name.
+
+Using a subfolder because screenshot and title pictures will be the same name.
 
 Depending on the maximum number of threads you have, this script will utilize that and make concurrent requests while scraping. These settings are cached in the .ini file. Should those values change(thanks for your contribution!), just remove them from the config file and they'll be fetched again.
 
 ## TODO
 
-Right now only `.nes` rom type is supported.
+Right now only FC, SFC and GBA rom types are supported.
 
-There may be some options in the command prompt but not working yet.
-
-* Specify what kind of media to download(`-m`)
-
-* Support for other roms
+* Add support for other roms
 
 * Better logging for analysis

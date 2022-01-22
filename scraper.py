@@ -5,6 +5,7 @@ import configparser
 import sys
 from pathlib import Path
 from typing import List
+from urllib.error import HTTPError
 import urllib.request
 import urllib.parse
 import hashlib
@@ -30,15 +31,15 @@ ROMSHA1_PARAM = "romsha1"
 SYSTEMEID_PARAM = "systemeid"
 ROMTYPE_PARAM = "romtype"
 ROMNAME_PARAM = "romnom"
+
+ALL = "all"
+TITLE = "title"
+SCREENSHOT = "screenshot"
 SS = "ss"
 SS_TITLE = "sstitle"
 
-INI_FILE = "pyscraper.ini"
-DEFAULT = 'screenscraper.fr'
-SS_NAME = "nickname"
-SS_PASS = "password"
-MAX_THREADS = "maxthreads"
-REGISTERED_ONLY = "registeredonly"
+PARAM_TO_MEDIA_TYPE = {TITLE: SS_TITLE, SCREENSHOT: SS}
+MEDIA_TYPE_TO_PARAM = {SS_TITLE: TITLE, SS: SCREENSHOT}
 
 SUPPORTED_FILE_TYPE_ID = {
     ".nes": "3",
@@ -47,6 +48,13 @@ SUPPORTED_FILE_TYPE_ID = {
     ".fig": "4",
     ".gba": "12"
 }
+
+INI_FILE = "pyscraper.ini"
+DEFAULT = 'screenscraper.fr'
+SS_NAME = "nickname"
+SS_PASS = "password"
+MAX_THREADS = "maxthreads"
+REGISTERED_ONLY = "registeredonly"
 
 __devid: str = None
 __devpassword: str = None
@@ -62,6 +70,7 @@ __recursive = False
 __rename = False
 __send_checksum = False
 __update_cache = False
+__download_media_types = {}
 
 
 class ChecksumInfo:
@@ -83,9 +92,15 @@ class ChecksumInfo:
 
 class DownloadFile:
 
-    def __init__(self, url, dest):
+    def __init__(self, file: Path, output_dir: Path, media: dict):
+        url = media.get("url")
+        parent_folder = file.parent if output_dir is None else output_dir
+        media_name = MEDIA_TYPE_TO_PARAM.get(media.get("type"), "media")
+        media_folder = parent_folder.joinpath(media_name)
+        name = file.stem + "." + media["format"]
         self.url = url
-        self.dest = dest
+        self.dir = media_folder
+        self.dest = media_folder.joinpath(name)
 
 
 def main() -> int:
@@ -118,10 +133,9 @@ def main() -> int:
                         action="store_true",
                         help="Force update the media and update the cache")
     parser.add_argument("-m",
-                        "--media-type",
-                        nargs='+',
-                        choices=["title", "screenshot"],
-                        default="title",
+                        "--media-types",
+                        choices=[ALL, TITLE, SCREENSHOT],
+                        default=[TITLE],
                         help="Media type to scrape. Default to title.")
     parser.add_argument(
         "-d",
@@ -136,9 +150,6 @@ def main() -> int:
         parser.print_usage()
         return 0
 
-    global __dry_run
-    __dry_run = args.dry_run
-
     global __input
     __input = args.input
     if not __input.exists():
@@ -152,11 +163,17 @@ def main() -> int:
         else:
             logger.warning("Invalid output directory")
 
-    global __recursive, __rename, __send_checksum, __update_cache
+    global __dry_run, __recursive, __rename, __send_checksum, __update_cache, __download_media_types
+    __dry_run = args.dry_run
     __recursive = args.recursive
     __rename = args.rename
     __send_checksum = args.checksum
     __update_cache = args.update_cache
+    __download_media_types = PARAM_TO_MEDIA_TYPE.values(
+    ) if ALL in args.media_types else {
+        PARAM_TO_MEDIA_TYPE[type]
+        for type in args.media_types
+    }
 
     if init_configs() != 0:
         return -1
@@ -179,10 +196,12 @@ def get_registered_user_only() -> bool:
                     f"Fetching forum closed for non-registered users: {result}"
                 )
                 return bool(result)
-            except ValueError:
-                logger.debug(response_data.decode('utf-8'))
+            except ValueError as e:
+                logger.exception(e)
+    except HTTPError as error:
+        logger.error(error.reason + " " + url)
     except Exception as e:
-        logger.debug(e)
+        logger.exception(e)
     return False
 
 
@@ -204,10 +223,12 @@ def get_maximum_threads() -> int:
                 logger.debug(
                     f"Fetching maximum threads to scrape: {max_threads}")
                 return max_threads
-            except ValueError:
-                logger.debug(response_data.decode("utf-8"))
+            except ValueError as e:
+                logger.exception(e)
+    except HTTPError as error:
+        logger.error(error.reason + " " + url)
     except Exception as e:
-        logger.debug(e)
+        logger.exception(e)
     return 1
 
 
@@ -254,10 +275,12 @@ def scrape_single_file(file: Path) -> List[DownloadFile]:
             try:
                 json_object = json.loads(response_data)
                 return process_response(file, json_object, checksum)
-            except ValueError:
-                logger.debug(response_data.decode('utf-8'))
+            except ValueError as e:
+                logger.exception(e)
+    except HTTPError as error:
+        logger.error(error.reason + " " + file.name)
     except Exception as e:
-        logger.debug(e)
+        logger.exception(e)
     return []
 
 
@@ -315,38 +338,40 @@ def maybe_rename_rom(file: Path, rom_data: dict,
 def download_available_media(file: Path, media_data: dict,
                              rom_regions: str) -> List[DownloadFile]:
     files = []
+    if len(__download_media_types) == 0:
+        return files
 
-    media_to_download: DownloadFile = None
-    available_files = []
+    type_to_media = {}
     for media in media_data:
-        if media.get("type") == SS_TITLE:
-            available_files.append(media)
+        media_type = media.get("type")
+        if media_type in __download_media_types:
+            type_media = type_to_media.get(media_type, [])
             if media.get("region") == rom_regions:
-                media_to_download = get_download_file_info(file, media)
+                type_media.insert(0, media)
+            else:
+                type_media.append(media)
+            type_to_media[media_type] = type_media
 
-    if not media_to_download and len(available_files) > 0:
-        media_to_download = get_download_file_info(file, available_files[0])
-
-    if media_to_download:
-        logger.debug(f"{media_to_download.dest}")
-        if not media_to_download.dest.exists() or __update_cache:
-            files.append(media_to_download)
-        else:
-            logger.debug(f"Skipping file {media_to_download.dest}")
+    for media_type in type_to_media:
+        media = type_to_media[media_type]
+        if len(media) > 0:
+            download_file = DownloadFile(file, __output_dir, media[0])
+            if not __dry_run and (not download_file.dest.exists()
+                                  or __update_cache):
+                files.append(download_file)
+            else:
+                logger.debug(f"Skipping file {download_file.dest}")
 
     return files
 
 
-def get_download_file_info(file: Path, media: dict) -> DownloadFile:
-    url = media.get("url")
-    output_folder = file.parent if __output_dir is None else __output_dir
-    dest = Path(output_folder).joinpath(file.stem + "." + media["format"])
-    return DownloadFile(url, dest)
-
-
 def download_file(file: DownloadFile) -> List:
-    logger.debug(f"fetching: {file.url}")
+    logger.debug(f"Fetching: {file.url}")
     logger.info(f"Download to: {file.dest}")
+    if not file.dir.exists():
+        logger.debug(f"Creating folder {file.dir}")
+        file.dir.mkdir()
+
     if file.dest.exists():
         logger.debug(f"Overwrite existing file {file.dest}")
 
@@ -360,8 +385,10 @@ def download_file(file: DownloadFile) -> List:
                 if not chunk:
                     break
                 handle.write(chunk)
+    except HTTPError as error:
+        logger.error(error.reason + " " + file.url)
     except Exception as e:
-        logger.debug(e)
+        logger.exception(e)
     return []
 
 
