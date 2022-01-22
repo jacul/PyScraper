@@ -48,13 +48,20 @@ SUPPORTED_FILE_TYPE_ID = {
     ".gba": "12"
 }
 
-devid: str = None
-devpassword: str = None
-ssid: str = None
-sspassword: str = None
-dry_run: bool
-registered_user_only: bool = None
-maximum_threads: int = None
+__devid: str = None
+__devpassword: str = None
+__ssid: str = None
+__sspassword: str = None
+__dry_run: bool
+__registered_user_only: bool = None
+__maximum_threads: int = None
+
+__input: Path = None
+__output_dir: Path = None
+__recursive = False
+__rename = False
+__send_checksum = False
+__update_cache = False
 
 
 class ChecksumInfo:
@@ -125,32 +132,36 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not args.input:
+    if args.input is None:
         parser.print_usage()
         return 0
 
-    global dry_run
-    dry_run = args.dry_run
+    global __dry_run
+    __dry_run = args.dry_run
 
-    input: Path = args.input
-    if not input.exists():
+    global __input
+    __input = args.input
+    if not __input.exists():
         logger.warning("Input does not exist")
         return -1
 
-    output_dir: Path
+    global __output_dir
     if args.output:
         if args.output.exists() and args.output.is_dir():
-            output_dir = args.output
+            __output_dir = args.output
         else:
             logger.warning("Invalid output directory")
-    else:
-        output_dir = input if input.is_dir() else input.parent
+
+    global __recursive, __rename, __send_checksum, __update_cache
+    __recursive = args.recursive
+    __rename = args.rename
+    __send_checksum = args.checksum
+    __update_cache = args.update_cache
 
     if init_configs() != 0:
         return -1
 
-    return scrape(input, output_dir, args.recursive, args.rename,
-                  args.checksum, args.update_cache)
+    return scrape()
 
 
 def get_registered_user_only() -> bool:
@@ -176,7 +187,7 @@ def get_registered_user_only() -> bool:
 
 
 def get_maximum_threads() -> int:
-    if not (ssid and sspassword):
+    if __ssid is None or __sspassword is None:
         return 1
 
     url = SS_API2_BASE_URL + USER_INFO_PATH + "?" + common_query(True)
@@ -200,22 +211,23 @@ def get_maximum_threads() -> int:
     return 1
 
 
-def scrape(input: Path, output_dir: Path, recursive: bool, rename: bool,
-           send_checksum: bool, update_cache: bool) -> int:
+def scrape() -> int:
     rom_files = []
-    if input.is_dir():
-        for f in input.rglob("*.*") if recursive else input.glob("*.*"):
+    if __input.is_dir():
+        for f in __input.rglob("*.*") if __recursive else __input.glob("*.*"):
             rom_files.append(f)
     else:
-        rom_files.append(input)
+        rom_files.append(__input)
 
     futures_list = []
-    with ThreadPoolExecutor(max_workers=maximum_threads) as executor:
+    with ThreadPoolExecutor(max_workers=__maximum_threads) as executor:
         for f in rom_files:
-            future = executor.submit(scrape_single_file, f, output_dir,
-                                     send_checksum, rename, update_cache)
+            future = executor.submit(
+                scrape_single_file,
+                f,
+            )
             futures_list.append(future)
-            if len(futures_list) >= maximum_threads or f == rom_files[-1]:
+            if len(futures_list) >= __maximum_threads or f == rom_files[-1]:
                 done, not_done = futures.wait(
                     futures_list, return_when=futures.ALL_COMPLETED)
                 files_to_download = [
@@ -228,12 +240,11 @@ def scrape(input: Path, output_dir: Path, recursive: bool, rename: bool,
     return 0
 
 
-def scrape_single_file(input: Path, output_dir: Path, send_checksum: bool,
-                       rename: bool, update_cache: bool) -> List[DownloadFile]:
-    if input.suffix.lower() not in SUPPORTED_FILE_TYPE_ID:
-        logger.debug(f"Unsupported rom type for scraping: {input}")
+def scrape_single_file(file: Path) -> List[DownloadFile]:
+    if file.suffix.lower() not in SUPPORTED_FILE_TYPE_ID:
+        logger.debug(f"Unsupported rom type for scraping: {file}")
         return []
-    rom_query_param, checksum = rominfo_query(input, send_checksum)
+    rom_query_param, checksum = rominfo_query(file)
     params = common_query(True) + '&' + rom_query_param
     url = SS_API2_BASE_URL + ROM_INFO_PATH + "?" + params
     logger.debug(url)
@@ -242,8 +253,7 @@ def scrape_single_file(input: Path, output_dir: Path, send_checksum: bool,
             response_data = response.read()
             try:
                 json_object = json.loads(response_data)
-                return process_response(input, output_dir, json_object,
-                                        checksum, rename, update_cache)
+                return process_response(file, json_object, checksum)
             except ValueError:
                 logger.debug(response_data.decode('utf-8'))
     except Exception as e:
@@ -251,45 +261,60 @@ def scrape_single_file(input: Path, output_dir: Path, send_checksum: bool,
     return []
 
 
-def process_response(input: Path, output_dir: Path, ss_data: dict,
-                     checksum: ChecksumInfo, rename: bool,
-                     update_cache: bool) -> List[DownloadFile]:
+def process_response(file: Path, ss_data: dict,
+                     checksum: ChecksumInfo) -> List[DownloadFile]:
     game_data = ss_data.get('response', {}).get('jeu')
-    if not game_data:
-        logger.warning(f"{input.name}: has no game data")
+    if game_data is None:
+        logger.warning(f"{file.name}: has no game data")
         return []
 
     rom_data = game_data.get('rom', {})
 
+    file = maybe_rename_rom(file, rom_data, checksum)
+
+    rom_regions = rom_data.get('romregions')
+    media_data = game_data.get('medias', {})
+
+    return download_available_media(file, media_data, rom_regions)
+
+
+def maybe_rename_rom(file: Path, rom_data: dict,
+                     checksum: ChecksumInfo) -> Path:
     if checksum:
         if checksum.crc == rom_data.get(
                 'romcrc') and checksum.md5 == rom_data.get(
                     'rommd5') and checksum.sha1 == rom_data.get('romsha1'):
-            logger.debug(f"{input.name}: checksum matches")
+            logger.debug(f"{file.name}: checksum matches")
         else:
-            logger.warning(f"{input.name}: has no match by checksum")
+            logger.warning(f"{file.name}: has no match by checksum")
 
     remote_rom_name = rom_data.get('romfilename', '')
     found_rom_with_same_suffix = remote_rom_name.lower().endswith(
-        input.suffix.lower())
-    if not found_rom_with_same_suffix:
-        logger.warning(f"{input.name}: has no match by name")
-    elif rename and found_rom_with_same_suffix:
-        if input.name == remote_rom_name:
-            logger.info(f"{input.name}: already the same name as remote")
-        else:
-            logger.info(f"{input.name}: renamed {remote_rom_name}")
-            if not dry_run:
-                rename_to = input.parent.joinpath(remote_rom_name)
-                if rename_to.exists():
-                    logger.warning(f"{remote_rom_name} already exists")
-                else:
-                    input = input.rename(
-                        input.parent.joinpath(remote_rom_name))
+        file.suffix.lower())
 
+    if not found_rom_with_same_suffix:
+        logger.warning(f"{file.name}: has no match by name")
+        return file
+
+    if __rename and found_rom_with_same_suffix:
+        if file.name == remote_rom_name:
+            logger.info(f"{file.name}: already the same name as remote")
+            return file
+
+        logger.info(f"{file.name}: rename to {remote_rom_name}")
+        if __dry_run: return file
+
+        rename_to = file.parent.joinpath(remote_rom_name)
+        if rename_to.exists():
+            logger.warning(f"{remote_rom_name} already exists, skipping")
+        else:
+            file = file.rename(file.parent.joinpath(remote_rom_name))
+    return file
+
+
+def download_available_media(file: Path, media_data: dict,
+                             rom_regions: str) -> List[DownloadFile]:
     files = []
-    rom_regions = rom_data.get('romregions')
-    media_data = game_data.get('medias', {})
 
     media_to_download: DownloadFile = None
     available_files = []
@@ -297,15 +322,14 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
         if media.get("type") == SS_TITLE:
             available_files.append(media)
             if media.get("region") == rom_regions:
-                media_to_download = get_download_file_info(
-                    input, output_dir, media)
+                media_to_download = get_download_file_info(file, media)
 
     if not media_to_download and len(available_files) > 0:
-        media_to_download = get_download_file_info(input, output_dir,
-                                                   available_files[0])
+        media_to_download = get_download_file_info(file, available_files[0])
 
     if media_to_download:
-        if not media_to_download.dest.exists() or update_cache:
+        logger.debug(f"{media_to_download.dest}")
+        if not media_to_download.dest.exists() or __update_cache:
             files.append(media_to_download)
         else:
             logger.debug(f"Skipping file {media_to_download.dest}")
@@ -313,10 +337,10 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
     return files
 
 
-def get_download_file_info(input: Path, output_dir: str,
-                           media: dict) -> DownloadFile:
+def get_download_file_info(file: Path, media: dict) -> DownloadFile:
     url = media.get("url")
-    dest = Path(output_dir).joinpath(input.stem + "." + media["format"])
+    output_folder = file.parent if __output_dir is None else __output_dir
+    dest = Path(output_folder).joinpath(file.stem + "." + media["format"])
     return DownloadFile(url, dest)
 
 
@@ -326,7 +350,7 @@ def download_file(file: DownloadFile) -> List:
     if file.dest.exists():
         logger.debug(f"Overwrite existing file {file.dest}")
 
-    if dry_run:
+    if __dry_run:
         return []
     try:
         req = urllib.request.urlopen(file.url)
@@ -343,19 +367,18 @@ def download_file(file: DownloadFile) -> List:
 
 def common_query(maybe_include_user_pass: bool) -> str:
     params = {
-        DEVID_PARAM: devid,
-        DEVPASSWORD_PARAM: devpassword,
+        DEVID_PARAM: __devid,
+        DEVPASSWORD_PARAM: __devpassword,
         SOFTNAME_PARAM: SOFTNAME,
         OUTPUT_PARAM: DEFAULT_OUTPUT,
     }
-    if maybe_include_user_pass and ssid and sspassword:
-        params[SSID_PARAM] = ssid
-        params[SSPASSWORD_PARAM] = sspassword
+    if maybe_include_user_pass and __ssid and __sspassword:
+        params[SSID_PARAM] = __ssid
+        params[SSPASSWORD_PARAM] = __sspassword
     return urllib.parse.urlencode(params)
 
 
-def rominfo_query(rom_file: Path,
-                  include_checksum: bool) -> tuple[str, ChecksumInfo]:
+def rominfo_query(rom_file: Path) -> tuple[str, ChecksumInfo]:
     system_id = SUPPORTED_FILE_TYPE_ID[rom_file.suffix.lower()]
     params = {
         SYSTEMEID_PARAM: system_id,
@@ -363,7 +386,7 @@ def rominfo_query(rom_file: Path,
         ROMNAME_PARAM: rom_file.name
     }
     checksum: ChecksumInfo = None
-    if include_checksum:
+    if __send_checksum:
         checksum = ChecksumInfo(rom_file)
         params[CRC_PARAM] = checksum.crc
         params[MD5_PARAM] = checksum.md5
@@ -373,25 +396,25 @@ def rominfo_query(rom_file: Path,
 
 def init_configs() -> int:
     load_config_file()
-    if not devid or not devpassword:
+    if __devid is None or __devpassword is None:
         logger.info(f"Set dev credentials in sample {INI_FILE} file!")
         save_sample_ini()
         return -1
 
-    global registered_user_only
-    if registered_user_only == None:
-        registered_user_only = get_registered_user_only()
-        append_ini(REGISTERED_ONLY, registered_user_only)
+    global __registered_user_only
+    if __registered_user_only == None:
+        __registered_user_only = get_registered_user_only()
+        append_ini(REGISTERED_ONLY, __registered_user_only)
 
-    if registered_user_only and not (ssid and sspassword):
+    if __registered_user_only and not (__ssid and __sspassword):
         logger.error(f"API closed for non-registered users, \
                 set forum nicknamd/password in {INI_FILE} file")
         return -1
 
-    global maximum_threads
-    if not maximum_threads:
-        maximum_threads = get_maximum_threads()
-        append_ini(MAX_THREADS, maximum_threads)
+    global __maximum_threads
+    if __maximum_threads is None:
+        __maximum_threads = get_maximum_threads()
+        append_ini(MAX_THREADS, __maximum_threads)
     return 0
 
 
@@ -400,19 +423,19 @@ def load_config_file():
     config.read(INI_FILE)
     if config.has_option(DEFAULT, DEVID_PARAM) and config.has_option(
             DEFAULT, DEVPASSWORD_PARAM):
-        global devid, devpassword, ssid, sspassword
-        devid = config[DEFAULT][DEVID_PARAM]
-        devpassword = config[DEFAULT][DEVPASSWORD_PARAM]
-        ssid = config[DEFAULT][SS_NAME]
-        sspassword = config[DEFAULT][SS_PASS]
+        global __devid, __devpassword, __ssid, __sspassword
+        __devid = config[DEFAULT][DEVID_PARAM]
+        __devpassword = config[DEFAULT][DEVPASSWORD_PARAM]
+        __ssid = config[DEFAULT][SS_NAME]
+        __sspassword = config[DEFAULT][SS_PASS]
 
     if config.has_option(DEFAULT, REGISTERED_ONLY):
-        global registered_user_only
-        registered_user_only = config.getboolean(DEFAULT, REGISTERED_ONLY)
+        global __registered_user_only
+        __registered_user_only = config.getboolean(DEFAULT, REGISTERED_ONLY)
 
     if config.has_option(DEFAULT, MAX_THREADS):
-        global maximum_threads
-        maximum_threads = config.getint(DEFAULT, MAX_THREADS)
+        global __maximum_threads
+        __maximum_threads = config.getint(DEFAULT, MAX_THREADS)
     return
 
 
