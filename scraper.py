@@ -2,7 +2,6 @@ import argparse
 from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
 import configparser
-import os
 import sys
 from pathlib import Path
 from typing import List
@@ -31,6 +30,8 @@ ROMSHA1_PARAM = "romsha1"
 SYSTEMEID_PARAM = "systemeid"
 ROMTYPE_PARAM = "romtype"
 ROMNAME_PARAM = "romnom"
+SS = "ss"
+SS_TITLE = "sstitle"
 
 INI_FILE = "pyscraper.ini"
 DEFAULT = 'screenscraper.fr'
@@ -39,7 +40,13 @@ SS_PASS = "password"
 MAX_THREADS = "maxthreads"
 REGISTERED_ONLY = "registeredonly"
 
-SUPPORTED_FILE_TYPE_ID = {".nes": "3", ".smc": "4", ".sfc": "4", ".fig": "4"}
+SUPPORTED_FILE_TYPE_ID = {
+    ".nes": "3",
+    ".smc": "4",
+    ".sfc": "4",
+    ".fig": "4",
+    ".gba": "12"
+}
 
 devid: str = None
 devpassword: str = None
@@ -277,7 +284,8 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
                 if rename_to.exists():
                     logger.warning(f"{remote_rom_name} already exists")
                 else:
-                    input = input.rename(input.parent.joinpath(remote_rom_name))
+                    input = input.rename(
+                        input.parent.joinpath(remote_rom_name))
 
     files = []
     rom_regions = rom_data.get('romregions')
@@ -286,7 +294,7 @@ def process_response(input: Path, output_dir: Path, ss_data: dict,
     media_to_download: DownloadFile = None
     available_files = []
     for media in media_data:
-        if media.get("type") == "sstitle":
+        if media.get("type") == SS_TITLE:
             available_files.append(media)
             if media.get("region") == rom_regions:
                 media_to_download = get_download_file_info(
