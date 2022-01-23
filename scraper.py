@@ -2,6 +2,8 @@ import argparse
 from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
 import configparser
+from fileinput import filename
+from glob import glob
 import sys
 from pathlib import Path
 from typing import List
@@ -64,12 +66,12 @@ __dry_run: bool
 __registered_user_only: bool = None
 __maximum_threads: int = None
 
-__input: Path = None
+__input = []
 __output_dir: Path = None
 __recursive = False
 __rename = False
 __send_checksum = False
-__update_cache = False
+__update_file = False
 __download_media_types = {}
 
 
@@ -109,8 +111,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Scrape rom information from screenscraper.fr")
     parser.add_argument("input",
-                        type=Path,
-                        help="Rom file or directory of the roms")
+                        nargs="*",
+                        help="Rom files or directory of the roms")
     parser.add_argument(
         "-o",
         "--output",
@@ -129,13 +131,13 @@ def main() -> int:
                         action="store_true",
                         help="Rename the rom file to the name from SS")
     parser.add_argument("-u",
-                        "--update-cache",
+                        "--update-file",
                         action="store_true",
-                        help="Force update the media and update the cache")
+                        help="Force update the existing media files")
     parser.add_argument("-m",
                         "--media-types",
                         choices=[ALL, TITLE, SCREENSHOT],
-                        default=[TITLE],
+                        default=[],
                         help="Media type to scrape. Default to title.")
     parser.add_argument(
         "-d",
@@ -146,15 +148,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.input is None:
+    if args.input is None or len(args.input) == 0:
         parser.print_usage()
         return 0
 
     global __input
-    __input = args.input
-    if not __input.exists():
-        logger.warning("Input does not exist")
-        return -1
+    for arg in args.input:
+        __input += glob(arg)
 
     global __output_dir
     if args.output:
@@ -163,12 +163,12 @@ def main() -> int:
         else:
             logger.warning("Invalid output directory")
 
-    global __dry_run, __recursive, __rename, __send_checksum, __update_cache, __download_media_types
+    global __dry_run, __recursive, __rename, __send_checksum, __update_file, __download_media_types
     __dry_run = args.dry_run
     __recursive = args.recursive
     __rename = args.rename
     __send_checksum = args.checksum
-    __update_cache = args.update_cache
+    __update_file = args.update_file
     __download_media_types = PARAM_TO_MEDIA_TYPE.values(
     ) if ALL in args.media_types else {
         PARAM_TO_MEDIA_TYPE[type]
@@ -233,22 +233,25 @@ def get_maximum_threads() -> int:
 
 
 def scrape() -> int:
-    rom_files = []
-    if __input.is_dir():
-        for f in __input.rglob("*.*") if __recursive else __input.glob("*.*"):
-            rom_files.append(f)
-    else:
-        rom_files.append(__input)
+    rom_files = set()
+    for file_name in __input:
+        file = Path(file_name)
+        if file.is_dir():
+            for f in file.rglob("*.*") if __recursive else file.glob("*.*"):
+                rom_files.add(f)
+        else:
+            rom_files.add(file)
 
     futures_list = []
     with ThreadPoolExecutor(max_workers=__maximum_threads) as executor:
-        for f in rom_files:
+        while len(rom_files) > 0:
+            f = rom_files.pop()
             future = executor.submit(
                 scrape_single_file,
                 f,
             )
             futures_list.append(future)
-            if len(futures_list) >= __maximum_threads or f == rom_files[-1]:
+            if len(futures_list) >= __maximum_threads or len(rom_files) == 0:
                 done, not_done = futures.wait(
                     futures_list, return_when=futures.ALL_COMPLETED)
                 files_to_download = [
@@ -357,10 +360,10 @@ def download_available_media(file: Path, media_data: dict,
         if len(media) > 0:
             download_file = DownloadFile(file, __output_dir, media[0])
             if not __dry_run and (not download_file.dest.exists()
-                                  or __update_cache):
+                                  or __update_file):
                 files.append(download_file)
             else:
-                logger.debug(f"Skipping file {download_file.dest}")
+                logger.warning(f"Skipping file {download_file.dest}")
 
     return files
 

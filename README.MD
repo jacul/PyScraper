@@ -4,35 +4,61 @@
 
 Python 3.10
 
-Developer identity (and optionally nickname/pass) for <https://screenscraper.fr>
+Developer identity (and optionally nickname/pass) for [screenscraper.fr](https://screenscraper.fr)
 
 ## Usage
 
 ```bash
-python3 scraper.py [options] <rom file or directory>
+python3 scraper.py [options] <rom files or directory>
 ```
 
-It'll create a `pyscraper.ini` file on the first time. Set your developer credentials there.
+First time launch will fail and generate a `.ini` file for you to fill in the credentials.
 
-Depending on whether <screenscraper.fr> allows API access for non-registered users, you may also need the forum nickname and password. You're very likely to have them if you already have a developer identity.
+Depending on whether [screenscraper.fr](https://screenscraper.fr) allows API access for non-registered users, you may also need the forum nickname and password. You're very likely to have them if you already have a developer identity.
 
-Supported options:
+Depending on the maximum number of threads you have, this script will make concurrent requests while scraping. These settings are also cached in the `.ini` file. Should those values change(thanks for your contribution!), just remove them from the config file and they'll be fetched again.
 
-```text
--c send checksum of the rom for more accurate info
--n rename the rom file to match the scraped name
--o output folder if different than rom's folder
--d dry-run, does not actually rename or download anything
--r scrape the roms recursively,effective only when input is a folder
--u force update the image file even they already exist
--m Specify a media type to download. Defaults to rom's title screenshot. Or use `all` to download both title and game screenshots.
+### Example 1
+
+```bash
+python3 scraper.py -n ~/sample.nes
 ```
 
-The script will download a game's title screenshot and save it using the rom's name to a subfolder of the rom's folder by default. Should the rom be renamed, the image file will always be the same name.
+This will scrape only the game name for `sample.nes` and rename it accordingly.
 
-Using a subfolder because screenshot and title pictures will be the same name.
+### Example 2
 
-Depending on the maximum number of threads you have, this script will utilize that and make concurrent requests while scraping. These settings are cached in the .ini file. Should those values change(thanks for your contribution!), just remove them from the config file and they'll be fetched again.
+```bash
+python3 scraper.py -cn ~/*.nes -m screenshot
+```
+
+This will scrape game info for all the nes roms under `~/` by sending the exact checksum of the rom (md5, sha1, crc32). It allows more accurate scraping but is less fail proof.
+
+This also downloads the game play screenshot to the `~/screenshot/` folder as specified by `-m` option. If a screenshot with the same name already exists, it won't be overwritten.
+
+### Example 3
+
+```bash
+python3 scraper.py -cnd ~/*.nes -m all
+```
+
+This command intends to send checksum info and rename the all `.nes` files under home folder, as well as downloading both game title and game play screenshots to `~/title` and `~/screenshot` respectively. But since `-d` is turned on, this will be a dry run, no name is changed, no file is downloaded.
+
+### Example 4
+
+```bash
+python3 scraper.py -cnu ~/*.nes -m all
+```
+
+Similar to example 3, but this will be an actual run. And with `-u` options, existing media files will be overwritten if already exist.
+
+### Example 5
+
+```bash
+python3 scraper.py -h
+```
+
+See help information and usage.
 
 ## TODO
 
