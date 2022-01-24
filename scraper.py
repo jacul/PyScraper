@@ -45,6 +45,7 @@ MEDIA_TYPE_TO_PARAM = {SS_TITLE: TITLE, SS: SCREENSHOT}
 SUPPORTED_FILE_TYPE_ID = {
     ".gen": "1",  # Sega Genesis
     ".md": "1",
+    ".smd": "1",
     ".sg": "1",
     ".sms": "2",  # Sega Master System
     ".nes": "3",  # Nintendo Entertainment System
@@ -56,11 +57,10 @@ SUPPORTED_FILE_TYPE_ID = {
     ".vb": "11",  # Virtual Boy
     ".gba": "12",  # Game Boy Advance
     ".gg": "21",  # Game Gear
-    ".sms": "21",
-    ".ngp": "25", # Neo-Geo Pocket
-    ".pce": "31", # PC Engine
-    ".ws": "45", # WonderSwan
-    ".wsc": "46", # WonderSwan Color
+    ".ngp": "25",  # Neo-Geo Pocket
+    ".pce": "31",  # PC Engine
+    ".ws": "45",  # WonderSwan
+    ".wsc": "46",  # WonderSwan Color
 }
 
 GENERIC_EXTENSIONS = {".zip", ".bin"}
@@ -395,7 +395,7 @@ def download_file(file: DownloadFile) -> List:
     logger.info(f"Download to: {file.dest}")
     if not file.dir.exists():
         logger.debug(f"Creating folder {file.dir}")
-        file.dir.mkdir()
+        file.dir.mkdir(exist_ok=True)
 
     if file.dest.exists():
         logger.debug(f"Overwrite existing file {file.dest}")
@@ -432,7 +432,7 @@ def common_query(maybe_include_user_pass: bool) -> str:
 
 def rominfo_query(rom_file: Path) -> tuple[str, ChecksumInfo]:
     system_id = SUPPORTED_FILE_TYPE_ID.get(rom_file.suffix.lower()) \
-        if __system_override is None else __system_override
+        if __system_override is None else SUPPORTED_FILE_TYPE_ID.get(__system_override)
     params = {
         SYSTEMEID_PARAM: system_id,
         ROMTYPE_PARAM: "rom",
