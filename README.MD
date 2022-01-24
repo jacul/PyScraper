@@ -55,7 +55,7 @@ Similar to example 3, but this will be an actual run. And with `-u` option, exis
 ### Example 5
 
 ```bash
-python3 scraper.py ~/*.zip ~/*.bin -e .md
+python3 scraper.py ~/*.zip ~/*.bin -s .md
 ```
 
 Scrape the `.zip` and `.bin` rom files as if they were `.md` files. There are many rom files using `.zip` or `.bin` extensions, so override is necessary.
