@@ -2,7 +2,6 @@ import argparse
 from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
 import configparser
-from fileinput import filename
 from glob import glob
 import sys
 from pathlib import Path
@@ -44,12 +43,27 @@ PARAM_TO_MEDIA_TYPE = {TITLE: SS_TITLE, SCREENSHOT: SS}
 MEDIA_TYPE_TO_PARAM = {SS_TITLE: TITLE, SS: SCREENSHOT}
 
 SUPPORTED_FILE_TYPE_ID = {
-    ".nes": "3",
-    ".smc": "4",
+    ".gen": "1",  # Sega Genesis
+    ".md": "1",
+    ".sg": "1",
+    ".sms": "2",  # Sega Master System
+    ".nes": "3",  # Nintendo Entertainment System
+    ".smc": "4",  # Super Nintendo
     ".sfc": "4",
     ".fig": "4",
-    ".gba": "12"
+    ".gb": "9",  # Game Boy
+    ".gbc": "10",  # Game Boy Color
+    ".vb": "11",  # Virtual Boy
+    ".gba": "12",  # Game Boy Advance
+    ".gg": "21",  # Game Gear
+    ".sms": "21",
+    ".ngp": "25", # Neo-Geo Pocket
+    ".pce": "31", # PC Engine
+    ".ws": "45", # WonderSwan
+    ".wsc": "46", # WonderSwan Color
 }
+
+GENERIC_EXTENSIONS = {".zip", ".bin"}
 
 INI_FILE = "pyscraper.ini"
 DEFAULT = 'screenscraper.fr'
@@ -72,6 +86,7 @@ __recursive = False
 __rename = False
 __send_checksum = False
 __update_file = False
+__system_override: str
 __download_media_types = {}
 
 
@@ -140,6 +155,11 @@ def main() -> int:
                         default=[],
                         help="Media type to scrape. Default to title.")
     parser.add_argument(
+        "-s",
+        "--system-override",
+        choices=SUPPORTED_FILE_TYPE_ID.keys(),
+        help="Override the system type, useful when scraping .zip or .bin")
+    parser.add_argument(
         "-d",
         "--dry-run",
         action="store_true",
@@ -163,7 +183,7 @@ def main() -> int:
         else:
             logger.warning("Invalid output directory")
 
-    global __dry_run, __recursive, __rename, __send_checksum, __update_file, __download_media_types
+    global __dry_run, __recursive, __rename, __send_checksum, __update_file, __download_media_types, __system_override
     __dry_run = args.dry_run
     __recursive = args.recursive
     __rename = args.rename
@@ -174,6 +194,7 @@ def main() -> int:
         PARAM_TO_MEDIA_TYPE[type]
         for type in args.media_types
     }
+    __system_override = args.system_override
 
     if init_configs() != 0:
         return -1
@@ -265,8 +286,9 @@ def scrape() -> int:
 
 
 def scrape_single_file(file: Path) -> List[DownloadFile]:
-    if file.suffix.lower() not in SUPPORTED_FILE_TYPE_ID:
-        logger.debug(f"Unsupported rom type for scraping: {file}")
+    suffix_low = file.suffix.lower()
+    if __system_override is None and suffix_low not in SUPPORTED_FILE_TYPE_ID:
+        logger.warning(f"Unsupported rom type for scraping: {file}")
         return []
     rom_query_param, checksum = rominfo_query(file)
     params = common_query(True) + '&' + rom_query_param
@@ -409,7 +431,8 @@ def common_query(maybe_include_user_pass: bool) -> str:
 
 
 def rominfo_query(rom_file: Path) -> tuple[str, ChecksumInfo]:
-    system_id = SUPPORTED_FILE_TYPE_ID[rom_file.suffix.lower()]
+    system_id = SUPPORTED_FILE_TYPE_ID.get(rom_file.suffix.lower()) \
+        if __system_override is None else __system_override
     params = {
         SYSTEMEID_PARAM: system_id,
         ROMTYPE_PARAM: "rom",

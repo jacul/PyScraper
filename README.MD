@@ -50,9 +50,17 @@ This command intends to send checksum info and rename the all `.nes` files under
 python3 scraper.py -cnu ~/*.nes -m all
 ```
 
-Similar to example 3, but this will be an actual run. And with `-u` options, existing media files will be overwritten if already exist.
+Similar to example 3, but this will be an actual run. And with `-u` option, existing media files will be overwritten if already exist.
 
 ### Example 5
+
+```bash
+python3 scraper.py ~/*.zip ~/*.bin -e .md
+```
+
+Scrape the `.zip` and `.bin` rom files as if they were `.md` files. There are many rom files using `.zip` or `.bin` extensions, so override is necessary.
+
+### Example 6
 
 ```bash
 python3 scraper.py -h
@@ -62,7 +70,7 @@ See help information and usage.
 
 ## TODO
 
-Right now only FC, SFC and GBA rom types are supported.
+Right now only a limited set of rom types are supported. See script's help info for the supported list of extensions.
 
 * Add support for other roms
 
