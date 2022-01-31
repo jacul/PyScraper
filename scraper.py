@@ -152,7 +152,6 @@ def main() -> int:
     parser.add_argument("-m",
                         "--media-types",
                         choices=[ALL, TITLE, SCREENSHOT],
-                        default=[],
                         help="Media type to scrape. Default to title.")
     parser.add_argument(
         "-s",
@@ -190,10 +189,7 @@ def main() -> int:
     __send_checksum = args.checksum
     __update_file = args.update_file
     __download_media_types = PARAM_TO_MEDIA_TYPE.values(
-    ) if ALL in args.media_types else {
-        PARAM_TO_MEDIA_TYPE[type]
-        for type in args.media_types
-    }
+    ) if ALL == args.media_types else PARAM_TO_MEDIA_TYPE[args.media_types]
     __system_override = args.system_override
 
     if init_configs() != 0:
